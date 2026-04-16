@@ -1,0 +1,534 @@
+{
+  "categories": [
+    {
+      "id": "dns",
+      "name": "DNS Resolution",
+      "keywords": ["could not resolve", "name resolution", "temporary failure in name resolution", "unknown host", "nodename nor servname", "dns", "resolv", "nxdomain", "no such host"],
+      "description": "Domain name resolution failures",
+      "tree": {
+        "question": "Can you ping a public IP directly? (e.g. ping -c 2 8.8.8.8)",
+        "yes": {
+          "question": "Does 'cat /etc/resolv.conf' show any nameserver entries?",
+          "yes": {
+            "question": "Is the nameserver IP reachable? (ping -c 2 <nameserver-ip>)",
+            "yes": {
+              "question": "Are you on a VPN or corporate network?",
+              "yes": {
+                "diagnosis": "VPN/corporate DNS conflict",
+                "cause": "Your VPN may be overriding DNS settings or split-DNS is misconfigured.",
+                "fixes": [
+                  "Check VPN DNS settings — ensure split-DNS is configured correctly",
+                  "Try: sudo resolvectl dns <interface> 8.8.8.8 8.8.4.4",
+                  "Or add 'DNS=8.8.8.8' to /etc/systemd/resolved.conf and restart: sudo systemctl restart systemd-resolved"
+                ],
+                "docs": "https://wiki.ubuntu.com/systemd/resolved"
+              },
+              "no": {
+                "diagnosis": "DNS resolver unresponsive",
+                "cause": "Your configured nameserver is reachable on the network but not responding to DNS queries.",
+                "fixes": [
+                  "Try a different DNS server: sudo resolvectl dns <iface> 8.8.8.8",
+                  "Edit /etc/resolv.conf: sudo nano /etc/resolv.conf — add 'nameserver 8.8.8.8'",
+                  "Check if systemd-resolved is running: sudo systemctl status systemd-resolved",
+                  "Restart resolved: sudo systemctl restart systemd-resolved"
+                ],
+                "docs": "https://manpages.ubuntu.com/manpages/resolv.conf.5.html"
+              }
+            },
+            "no": {
+              "diagnosis": "Nameserver unreachable",
+              "cause": "Your DNS server IP is configured but not reachable — likely a network or DHCP issue.",
+              "fixes": [
+                "Run: sudo dhclient -r && sudo dhclient to renew DHCP (may fix DNS assignment)",
+                "Temporarily override: sudo resolvectl dns <iface> 8.8.8.8 8.8.4.4",
+                "If using NetworkManager: nmcli dev show | grep DNS"
+              ],
+              "docs": "https://ubuntu.com/server/docs/network-configuration"
+            }
+          },
+          "no": {
+            "diagnosis": "resolv.conf missing or empty",
+            "cause": "/etc/resolv.conf has no nameserver entries — DNS has nowhere to send queries.",
+            "fixes": [
+              "Check symlink: ls -la /etc/resolv.conf (should point to systemd stub)",
+              "Re-link: sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf",
+              "Or manually add: echo 'nameserver 8.8.8.8' | sudo tee /etc/resolv.conf",
+              "Restart networking: sudo systemctl restart systemd-networkd"
+            ],
+            "docs": "https://wiki.ubuntu.com/systemd/resolved"
+          }
+        },
+        "no": {
+          "question": "Does 'ip route' show a default gateway?",
+          "yes": {
+            "diagnosis": "Gateway unreachable — deeper network issue",
+            "cause": "A default route exists but traffic isn't reaching the internet. Likely a gateway, firewall, or interface problem.",
+            "fixes": [
+              "Ping your gateway: ip route | grep default (get gateway IP, then ping it)",
+              "Check interface status: ip link show && ip addr show",
+              "Restart networking: sudo systemctl restart NetworkManager",
+              "Check for firewall rules: sudo iptables -L -n"
+            ],
+            "docs": "https://ubuntu.com/server/docs/network-configuration"
+          },
+          "no": {
+            "diagnosis": "No default route configured",
+            "cause": "Your machine has no default gateway — it doesn't know how to reach the internet.",
+            "fixes": [
+              "If using DHCP: sudo dhclient <interface>  (e.g. sudo dhclient eth0)",
+              "Manual route: sudo ip route add default via <gateway-ip>",
+              "Check if NetworkManager is running: sudo systemctl status NetworkManager",
+              "Restart NetworkManager: sudo systemctl restart NetworkManager"
+            ],
+            "docs": "https://ubuntu.com/server/docs/network-configuration"
+          }
+        }
+      }
+    },
+    {
+      "id": "ssh",
+      "name": "SSH Connection",
+      "keywords": ["connection refused", "ssh: connect", "port 22", "no route to host", "host key verification failed", "permission denied (publickey)", "connection timed out", "ssh", "sshd"],
+      "description": "SSH connection and authentication failures",
+      "tree": {
+        "question": "Is this a 'Connection refused' or 'Connection timed out' error?",
+        "yes": {
+          "question": "Can you ping the target host?",
+          "yes": {
+            "question": "Is SSH running on the remote host? (try: nc -zv <host> 22)",
+            "yes": {
+              "question": "Is SSH running on a non-standard port?",
+              "yes": {
+                "diagnosis": "SSH on non-standard port",
+                "cause": "The remote SSH daemon is listening on a port other than 22.",
+                "fixes": [
+                  "Connect specifying port: ssh -p <port> user@host",
+                  "Check remote sshd config: sudo grep Port /etc/ssh/sshd_config",
+                  "Add to ~/.ssh/config: Host <alias>\\n  HostName <host>\\n  Port <port>"
+                ],
+                "docs": "https://manpages.ubuntu.com/manpages/sshd_config.5.html"
+              },
+              "no": {
+                "diagnosis": "SSH daemon not running or firewall blocking port 22",
+                "cause": "Port 22 appears closed — sshd may be stopped or a firewall is dropping packets.",
+                "fixes": [
+                  "On remote (if accessible): sudo systemctl start sshd",
+                  "Check firewall: sudo ufw status && sudo ufw allow ssh",
+                  "Check iptables: sudo iptables -L -n | grep 22",
+                  "Verify sshd is installed: sudo apt install openssh-server"
+                ],
+                "docs": "https://ubuntu.com/server/docs/service-openssh"
+              }
+            },
+            "no": {
+              "diagnosis": "Host unreachable at network level",
+              "cause": "The host is reachable via ping (ICMP) but TCP connections are being blocked or the host is down.",
+              "fixes": [
+                "Check if a firewall is blocking TCP: sudo ufw status",
+                "Try traceroute: traceroute <host>",
+                "Verify the IP/hostname is correct",
+                "Check if the host is a VM — ensure it's powered on and networking is bridged/NAT correctly"
+              ],
+              "docs": "https://ubuntu.com/server/docs/network-configuration"
+            }
+          },
+          "no": {
+            "diagnosis": "Host completely unreachable",
+            "cause": "Cannot reach the host at all — likely a network, VM, or IP misconfiguration.",
+            "fixes": [
+              "Verify the hostname/IP is correct",
+              "Check the host is powered on",
+              "For VMs: check network adapter mode (bridged vs NAT) in your hypervisor",
+              "Check your routing: ip route show",
+              "Try from a different network to isolate the issue"
+            ],
+            "docs": "https://ubuntu.com/server/docs/network-configuration"
+          }
+        },
+        "no": {
+          "question": "Is the error 'Host key verification failed' or 'WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED'?",
+          "yes": {
+            "diagnosis": "SSH host key mismatch",
+            "cause": "The remote host's key doesn't match what's stored in your known_hosts — this can be a legit key change (reinstall, new VM) or a MITM warning.",
+            "fixes": [
+              "If you trust the host changed legitimately: ssh-keygen -R <hostname>",
+              "Then reconnect and accept the new key",
+              "Never blindly remove keys if this is a production server — verify the key fingerprint with the admin first"
+            ],
+            "docs": "https://manpages.ubuntu.com/manpages/known_hosts.5.html"
+          },
+          "no": {
+            "question": "Is the error 'Permission denied (publickey)' or 'No supported authentication methods'?",
+            "yes": {
+              "question": "Are you using SSH key authentication (not password)?",
+              "yes": {
+                "diagnosis": "SSH key authentication failure",
+                "cause": "Your public key isn't in the remote's authorized_keys, or key permissions are wrong.",
+                "fixes": [
+                  "Copy your key: ssh-copy-id user@host",
+                  "Or manually: cat ~/.ssh/id_rsa.pub | ssh user@host 'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys'",
+                  "Fix permissions on remote: chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys",
+                  "Check SSH agent: ssh-add -l  (add key if missing: ssh-add ~/.ssh/id_rsa)",
+                  "Debug with: ssh -vvv user@host"
+                ],
+                "docs": "https://ubuntu.com/server/docs/service-openssh"
+              },
+              "no": {
+                "diagnosis": "Password authentication disabled on remote",
+                "cause": "The server only allows key-based auth, but you're attempting password login.",
+                "fixes": [
+                  "Generate a key pair: ssh-keygen -t ed25519",
+                  "Copy to remote (if you have console access): ssh-copy-id user@host",
+                  "Or ask the admin to add your public key to ~/.ssh/authorized_keys",
+                  "To enable password auth (not recommended for internet-facing): sudo nano /etc/ssh/sshd_config — set PasswordAuthentication yes, then sudo systemctl restart sshd"
+                ],
+                "docs": "https://ubuntu.com/server/docs/service-openssh"
+              }
+            },
+            "no": {
+              "diagnosis": "Unknown SSH error",
+              "cause": "The error doesn't match common patterns — verbose output will help identify the cause.",
+              "fixes": [
+                "Run with verbose logging: ssh -vvv user@host",
+                "Check sshd logs on remote: sudo journalctl -u sshd -n 50",
+                "Verify sshd config is valid: sudo sshd -t"
+              ],
+              "docs": "https://ubuntu.com/server/docs/service-openssh"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "apt",
+      "name": "APT Package Manager",
+      "keywords": ["unable to fetch", "could not get lock", "dpkg was interrupted", "held broken packages", "apt-get", "apt ", "dpkg", "package", "repository", "404 not found", "hash sum mismatch", "lock file"],
+      "description": "APT and dpkg package management errors",
+      "tree": {
+        "question": "Is the error related to a lock file? (e.g. 'Could not get lock /var/lib/dpkg/lock')",
+        "yes": {
+          "question": "Is another apt or dpkg process currently running? (check: ps aux | grep apt)",
+          "yes": {
+            "diagnosis": "Concurrent apt process",
+            "cause": "Another package manager process is running — wait for it to complete.",
+            "fixes": [
+              "Wait for the other process to finish",
+              "If it's a stuck/zombie process: sudo kill <pid>",
+              "Then: sudo dpkg --configure -a"
+            ],
+            "docs": "https://manpages.ubuntu.com/manpages/apt.8.html"
+          },
+          "no": {
+            "diagnosis": "Stale lock file",
+            "cause": "A previous apt/dpkg run was interrupted and left behind a lock file.",
+            "fixes": [
+              "Remove lock files: sudo rm /var/lib/dpkg/lock-frontend && sudo rm /var/lib/dpkg/lock && sudo rm /var/cache/apt/archives/lock",
+              "Reconfigure dpkg: sudo dpkg --configure -a",
+              "Then retry your command"
+            ],
+            "docs": "https://manpages.ubuntu.com/manpages/dpkg.1.html"
+          }
+        },
+        "no": {
+          "question": "Is the error about fetching/downloading packages? (e.g. '404 Not Found', 'Unable to fetch', 'Hash Sum mismatch')",
+          "yes": {
+            "question": "Do you have working internet connectivity? (ping -c 2 8.8.8.8)",
+            "yes": {
+              "diagnosis": "Repository index stale or source unavailable",
+              "cause": "Package lists are outdated or the repository URL returned an error (404/mismatch).",
+              "fixes": [
+                "Update package lists: sudo apt update",
+                "Clear apt cache: sudo apt clean && sudo apt update",
+                "Check for broken sources: sudo apt update 2>&1 | grep -i error",
+                "Remove failing third-party PPAs: sudo add-apt-repository --remove ppa:<name>",
+                "If a specific repo is broken: check /etc/apt/sources.list.d/ and disable the offending file"
+              ],
+              "docs": "https://ubuntu.com/server/docs/package-management"
+            },
+            "no": {
+              "diagnosis": "No internet access for apt",
+              "cause": "apt cannot reach the repositories because the machine has no network connectivity.",
+              "fixes": [
+                "Fix network first — run 'netreason diagnose' with a network error to troubleshoot",
+                "If you need to install offline: download .deb files on another machine and transfer via scp or USB",
+                "Use dpkg for offline installs: sudo dpkg -i <package>.deb"
+              ],
+              "docs": "https://ubuntu.com/server/docs/package-management"
+            }
+          },
+          "no": {
+            "question": "Is the error 'dpkg was interrupted' or about broken packages?",
+            "yes": {
+              "diagnosis": "Interrupted dpkg / broken package state",
+              "cause": "A previous install was interrupted, leaving the package database in a broken state.",
+              "fixes": [
+                "Reconfigure pending packages: sudo dpkg --configure -a",
+                "Fix broken dependencies: sudo apt --fix-broken install",
+                "Force reinstall a specific package: sudo apt install --reinstall <package>",
+                "If still failing: sudo apt update && sudo apt dist-upgrade"
+              ],
+              "docs": "https://manpages.ubuntu.com/manpages/dpkg.1.html"
+            },
+            "no": {
+              "diagnosis": "General apt error",
+              "cause": "Unclassified apt issue — running update and fix-broken usually resolves most states.",
+              "fixes": [
+                "Run: sudo apt update && sudo apt --fix-broken install",
+                "Check full error output for the specific package name",
+                "Try: sudo apt-get clean && sudo apt-get update && sudo apt-get upgrade"
+              ],
+              "docs": "https://ubuntu.com/server/docs/package-management"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "connectivity",
+      "name": "Network Connectivity",
+      "keywords": ["network unreachable", "no route to host", "network is unreachable", "destination host unreachable", "connect: network", "interface", "eth0", "ens", "wlan", "ip addr", "ifconfig", "cannot connect", "unreachable"],
+      "description": "General network connectivity and interface issues",
+      "tree": {
+        "question": "Does 'ip link show' show your network interface as UP?",
+        "yes": {
+          "question": "Does 'ip addr show' show an IP address on your main interface?",
+          "yes": {
+            "question": "Can you ping your default gateway? (ip route | grep default, then ping <gateway>)",
+            "yes": {
+              "question": "Can you ping 8.8.8.8 (Google DNS)?",
+              "yes": {
+                "diagnosis": "DNS issue (not connectivity)",
+                "cause": "Your network connection is working fine — this is a DNS resolution problem.",
+                "fixes": [
+                  "Run 'netreason diagnose' and paste a DNS error for targeted help",
+                  "Quick fix: sudo resolvectl dns <iface> 8.8.8.8 8.8.4.4",
+                  "Or: echo 'nameserver 8.8.8.8' | sudo tee /etc/resolv.conf"
+                ],
+                "docs": "https://wiki.ubuntu.com/systemd/resolved"
+              },
+              "no": {
+                "diagnosis": "Traffic blocked beyond gateway",
+                "cause": "You can reach your local gateway but not the internet — firewall, NAT, or ISP issue.",
+                "fixes": [
+                  "Check firewall rules: sudo iptables -L -n && sudo ufw status",
+                  "For VMs: verify NAT/bridged adapter is configured in the hypervisor",
+                  "Check if proxy is required: env | grep -i proxy",
+                  "Try: curl -v https://1.1.1.1 to test raw TCP to Cloudflare"
+                ],
+                "docs": "https://ubuntu.com/server/docs/network-configuration"
+              }
+            },
+            "no": {
+              "diagnosis": "Gateway unreachable",
+              "cause": "You have an IP but can't reach the gateway — wrong gateway, bad route, or physical/VM networking issue.",
+              "fixes": [
+                "Verify gateway IP: ip route show default",
+                "Check interface is up: sudo ip link set <iface> up",
+                "For VMs: ensure the network adapter is connected in hypervisor settings",
+                "Try releasing and renewing DHCP: sudo dhclient -r <iface> && sudo dhclient <iface>",
+                "Restart NetworkManager: sudo systemctl restart NetworkManager"
+              ],
+              "docs": "https://ubuntu.com/server/docs/network-configuration"
+            }
+          },
+          "no": {
+            "diagnosis": "Interface has no IP address",
+            "cause": "Your network interface is up but has no IP — DHCP failed or static IP not configured.",
+            "fixes": [
+              "Request DHCP lease: sudo dhclient <interface>  (e.g. eth0 or ens3)",
+              "Check DHCP client: sudo systemctl status isc-dhcp-client",
+              "For static IP (Netplan): sudo nano /etc/netplan/01-netcfg.yaml — add IP config, then: sudo netplan apply",
+              "Restart NetworkManager: sudo systemctl restart NetworkManager"
+            ],
+            "docs": "https://ubuntu.com/server/docs/network-configuration"
+          }
+        },
+        "no": {
+          "question": "Does the interface exist but show as DOWN?",
+          "yes": {
+            "diagnosis": "Network interface is down",
+            "cause": "The interface exists but is not active — it needs to be brought up.",
+            "fixes": [
+              "Bring interface up: sudo ip link set <iface> up",
+              "For Netplan: sudo netplan apply",
+              "Check if NetworkManager manages it: nmcli dev status",
+              "Enable interface via NM: nmcli con up <connection-name>",
+              "For VMs: check the adapter is enabled in hypervisor settings"
+            ],
+            "docs": "https://ubuntu.com/server/docs/network-configuration"
+          },
+          "no": {
+            "diagnosis": "Interface not found",
+            "cause": "No network interface is detected — driver issue, hardware problem, or wrong interface name.",
+            "fixes": [
+              "List all interfaces: ip link show && lspci | grep -i net",
+              "Check for driver: dmesg | grep -i eth",
+              "For VMs: ensure a network adapter is added in hypervisor settings",
+              "Try loading driver: sudo modprobe e1000 (or relevant driver)",
+              "Check interface naming: ip link show (may be ens3, enp0s3, etc.)"
+            ],
+            "docs": "https://ubuntu.com/server/docs/network-configuration"
+          }
+        }
+      }
+    },
+    {
+      "id": "systemd",
+      "name": "Systemd / Service",
+      "keywords": ["failed to start", "service", "unit", "systemctl", "job failed", "activating", "active: failed", "dependency failed", "timeout", "systemd", "journalctl", "masked", "not found"],
+      "description": "Systemd service start failures and unit errors",
+      "tree": {
+        "question": "Is the error 'Unit not found' or 'No such file or directory'?",
+        "yes": {
+          "question": "Did you recently install the service package?",
+          "yes": {
+            "diagnosis": "Service unit not registered",
+            "cause": "The package is installed but the systemd unit hasn't been enabled/loaded.",
+            "fixes": [
+              "Reload systemd: sudo systemctl daemon-reload",
+              "Enable the service: sudo systemctl enable <service>",
+              "Then start it: sudo systemctl start <service>",
+              "Verify unit file exists: find /etc/systemd /lib/systemd -name '<service>.service'"
+            ],
+            "docs": "https://manpages.ubuntu.com/manpages/systemctl.1.html"
+          },
+          "no": {
+            "diagnosis": "Service package not installed",
+            "cause": "The service unit file doesn't exist — the package likely isn't installed.",
+            "fixes": [
+              "Install the relevant package: sudo apt install <service-name>",
+              "Search for it: apt search <keyword>",
+              "If it's a custom service: create the unit file in /etc/systemd/system/<name>.service"
+            ],
+            "docs": "https://manpages.ubuntu.com/manpages/systemd.service.5.html"
+          }
+        },
+        "no": {
+          "question": "Does 'systemctl status <service>' show 'masked'?",
+          "yes": {
+            "diagnosis": "Service is masked",
+            "cause": "The service has been explicitly masked (disabled at a deeper level than just disabled).",
+            "fixes": [
+              "Unmask: sudo systemctl unmask <service>",
+              "Then enable and start: sudo systemctl enable --now <service>"
+            ],
+            "docs": "https://manpages.ubuntu.com/manpages/systemctl.1.html"
+          },
+          "no": {
+            "question": "Does the service start briefly then crash? (Active: failed, after activating)",
+            "yes": {
+              "question": "Is this a network-dependent service (nginx, mysql, etc.)?",
+              "yes": {
+                "diagnosis": "Service crashing on start — check logs for root cause",
+                "cause": "The service starts but its process exits immediately — config error, port conflict, or missing dependency.",
+                "fixes": [
+                  "Check detailed logs: sudo journalctl -u <service> -n 50 --no-pager",
+                  "Check for port conflicts: sudo ss -tlnp | grep <port>",
+                  "Validate config file (e.g. nginx): sudo nginx -t",
+                  "Check for missing files/dirs referenced in config",
+                  "Look at the ExecStart command: sudo systemctl cat <service>"
+                ],
+                "docs": "https://manpages.ubuntu.com/manpages/journalctl.1.html"
+              },
+              "no": {
+                "diagnosis": "Service process exits immediately",
+                "cause": "The service binary runs and exits — config, permissions, or dependency problem.",
+                "fixes": [
+                  "Read full logs: sudo journalctl -u <service> -xe",
+                  "Check the ExecStart path exists: sudo systemctl cat <service>",
+                  "Test running manually: sudo <binary-path> (to see raw error output)",
+                  "Check permissions on required files/directories"
+                ],
+                "docs": "https://manpages.ubuntu.com/manpages/journalctl.1.html"
+              }
+            },
+            "no": {
+              "diagnosis": "Service fails to activate",
+              "cause": "The service unit exists and isn't masked, but something is preventing activation.",
+              "fixes": [
+                "Check full status: sudo systemctl status <service> -l",
+                "Read logs: sudo journalctl -u <service> --since '5 min ago'",
+                "Check dependencies: sudo systemctl list-dependencies <service>",
+                "Reload and retry: sudo systemctl daemon-reload && sudo systemctl start <service>"
+              ],
+              "docs": "https://manpages.ubuntu.com/manpages/systemctl.1.html"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "firewall",
+      "name": "Firewall / UFW",
+      "keywords": ["ufw", "iptables", "access denied", "blocked", "port blocked", "connection blocked", "firewall", "rejected", "filter"],
+      "description": "UFW and iptables firewall configuration issues",
+      "tree": {
+        "question": "Are you trying to allow inbound connections to this machine?",
+        "yes": {
+          "question": "Is UFW enabled? (sudo ufw status)",
+          "yes": {
+            "question": "Is the specific port/service listed as ALLOW in ufw status?",
+            "yes": {
+              "diagnosis": "UFW rule exists — issue may be iptables or app config",
+              "cause": "UFW shows the rule, but traffic is still blocked — could be raw iptables rules or the app isn't binding to the right interface.",
+              "fixes": [
+                "Check raw iptables: sudo iptables -L -n -v",
+                "Verify the app is listening: sudo ss -tlnp | grep <port>",
+                "Check if app binds to 0.0.0.0 or only localhost (127.0.0.1)",
+                "Temporarily disable UFW for testing: sudo ufw disable"
+              ],
+              "docs": "https://ubuntu.com/server/docs/security-firewall"
+            },
+            "no": {
+              "diagnosis": "UFW rule missing",
+              "cause": "UFW is enabled and blocking the port — no allow rule exists for it.",
+              "fixes": [
+                "Allow by service name: sudo ufw allow ssh  OR  sudo ufw allow http",
+                "Allow by port: sudo ufw allow <port>/tcp",
+                "Allow from specific IP: sudo ufw allow from <ip> to any port <port>",
+                "After adding rules: sudo ufw reload"
+              ],
+              "docs": "https://ubuntu.com/server/docs/security-firewall"
+            }
+          },
+          "no": {
+            "diagnosis": "UFW disabled — not the cause",
+            "cause": "UFW is inactive, so it's not blocking anything. The issue is elsewhere.",
+            "fixes": [
+              "Check raw iptables for rules: sudo iptables -L -n",
+              "Verify the service is running and listening: sudo ss -tlnp",
+              "Check application-level access control (e.g. AllowUsers in sshd_config)",
+              "Check if a cloud/host firewall (AWS Security Groups, etc.) is blocking traffic"
+            ],
+            "docs": "https://ubuntu.com/server/docs/security-firewall"
+          }
+        },
+        "no": {
+          "question": "Are you trying to make outbound connections that are being blocked?",
+          "yes": {
+            "diagnosis": "Outbound traffic blocked",
+            "cause": "Outbound connections are being filtered — rare on Ubuntu unless explicitly configured or on a corporate network.",
+            "fixes": [
+              "Check UFW outbound rules: sudo ufw status verbose",
+              "UFW allows all outbound by default — check if policy was changed: sudo ufw default deny outgoing",
+              "To allow outbound: sudo ufw default allow outgoing",
+              "Check iptables OUTPUT chain: sudo iptables -L OUTPUT -n",
+              "Check if a corporate proxy is required: env | grep -i proxy"
+            ],
+            "docs": "https://ubuntu.com/server/docs/security-firewall"
+          },
+          "no": {
+            "diagnosis": "Firewall misconfiguration — general",
+            "cause": "Unclear firewall issue — reset and rebuild rules.",
+            "fixes": [
+              "View all rules: sudo ufw status numbered",
+              "Reset to defaults (careful on remote servers): sudo ufw reset",
+              "Recommended baseline: sudo ufw default deny incoming && sudo ufw default allow outgoing && sudo ufw allow ssh && sudo ufw enable"
+            ],
+            "docs": "https://ubuntu.com/server/docs/security-firewall"
+          }
+        }
+      }
+    }
+  ]
+}
